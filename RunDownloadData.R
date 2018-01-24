@@ -13,7 +13,7 @@ code.dir = file.path(base.dir, "Scripts")
 out.dir = file.path(base.dir, "Outputs")
 out.dir = file.path(out.dir, "RunDownloadData_Out")
 dir.create(out.dir, showWarnings = F)
-utility_funs = "UtilityFuns_v16_20171230.R"
+utility_funs = "UtilityFuns.R"
 fname = paste0("L_", gsub("-", "", Sys.Date()), ".RData") #fname for saving
 
 # Create 'syms.df' obj required as input IF running DonwloadData for first time. NB needs to be a 2 col dataframe with colnames 'Symbol' and "SRC". If you want to see how to get ALL oanda symbols, look at first code block within DownloadData function 
