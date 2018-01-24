@@ -1,6 +1,5 @@
 ############################################################################
-# Description: Performs EDA of bivariate relationships between stock up/down, returns, price and a suite of explanatory variables. Does for different values of 'n' i.e. forecast windows (are we forecasting return for tomorrow, or in five days?). 
-# Outputs are a table and boxplot for each combo of n, "y_type" (binary, returns etcs) summarising distribution of pvals, (test data) balanced accur, AUC, MAE etc by explanatory variables. Also saves list '"D' containing results (see 'initialise nested list' section for details of exactly what it contains)
+# Description: Performs EDA of between stock up/down, returns, price and a suite of explanatory variables and forecast windows (are we forecasting return for tomorrow, or in five days?). Outputs are a table and boxplot for each combo of n, "y_type" (binary, returns etcs) summarising distribution of pvals, (test data) balanced accur, AUC, MAE etc by explanatory variables and % of times variables were selected by glmnet. Also saves list '"D' containing results (see 'initialise nested list' section for details of exactly what it contains)
 
 # Author and date: Jon Ruffell, 30/12/17
 ############################################################################
