@@ -26,15 +26,15 @@ n_syms = 300
 fname = "L_20171231.RData" #name of data to load
 # base.dir = "~/Desktop/Jon/Trading"
 base.dir = "C:/Users/user/Desktop/Jonathan/Trading"
-dat.dir = file.path(base.dir, "Outputs", "RunDownloadData_Out")
+dat.dir = file.path(base.dir, "Outputs", "PredictorEDA_Out")
 code.dir = file.path(base.dir, "Scripts")
 out.dir = file.path(base.dir, "Outputs")
-out.dir = file.path(out.dir, "RunBivariatePvalsAccurs_Out")
+out.dir = file.path(out.dir, "PredictorEDA_Out")
 dir.create(out.dir, showWarnings = F)
 out.dir = file.path(out.dir, gsub("-", "", Sys.Date()))
 dir.create(out.dir, showWarnings = F)
 out.dir = file.path(out.dir, paste0("NumSyms=", n_syms)); dir.create(out.dir, showWarnings = F)
-utility_funs = "UtilityFuns_v17_20171231.R"
+utility_funs = "UtilityFuns.R"
 
 # Specify forecast windows periods fws and y_types to iterate across (eg fw=3 means 3 day returns, y_types is same as arg in BuildDataset ie binary, returns or price)
 # fws = c(1, 2, 3, 4, 5, 7, 10) #>>>
