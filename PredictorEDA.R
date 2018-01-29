@@ -22,7 +22,8 @@ n_syms = 300
 ################## 
 
 # Specify files to load and directories
-fname = "L_20171231.RData" #name of data to load
+fname = "L_20180130.RData" #name of data to load
+# fname = "L_20171231.RData" #name of data to load
 # base.dir = "~/Desktop/Jon/Trading"
 base.dir = "C:/Users/user/Desktop/Jonathan/Trading"
 dat.dir = file.path(base.dir, "Outputs", "RunDownloadData_Out")
