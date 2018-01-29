@@ -8,7 +8,7 @@ rm(list = ls()); gc()
 library(quantmod)
 
 # Specify inputs
-base.dir = "~/Desktop/Jon/Trading"
+base.dir = "C:/Users/user/Desktop/Jonathan/Trading"
 code.dir = file.path(base.dir, "Scripts")
 out.dir = file.path(base.dir, "Outputs")
 out.dir = file.path(out.dir, "RunDownloadData_Out")
@@ -29,6 +29,9 @@ yahoo_syms = c(stocks, indices); oanda_syms = c(ERs, commods)
 syms.df = data.frame("Symbol" = c(yahoo_syms, oanda_syms), 
                      "SRC" = c(rep("yahoo", length(yahoo_syms)), 
                                rep("oanda", length(oanda_syms))))
+#***************************************************
+# syms.df = syms.df[1:3, ] #JUST FOR TESTING
+#***************************************************
 
 # Source function and run
 source(file.path(code.dir, utility_funs))
