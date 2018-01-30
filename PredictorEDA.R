@@ -16,7 +16,7 @@ library(ggplot2)
 library(scales)
 
 # Specify num symbols to sample
-n_syms = 300
+n_syms = 400
 ###################
 # n_syms = 5 #for testing!!! >>>
 ################## 
@@ -78,7 +78,7 @@ if (n_syms > length(L$data)) {
 
 # Make nested list to store ALL our results. This gets a bit confusing, but it will be a four level list, where the levels are as follows: n (as in n day returns), y_type, symbol, results for symbol. E.g. we could call pvals for symbol NGT when y_type = binary and forecast_window=1 as D[["forecast_window=1"]][["binary"]][[NGT]][["pvals"]]). Creating 'empty' list for first three levels (we'll add the fourth in the loop below)
 syms = names(L$data)
-if (set_seed == T) {set.seed(1)}
+if (set_seed == T) {set.seed(2)}
 syms = sample(syms, n_syms)
 levl1 = vector("list", length(syms)); names(levl1) = syms #bottom level - named wtih symbols
 levl2 = vector("list", length(y_types)); names(levl2) = y_types #mid level - named with binary, price, returns etc
