@@ -555,10 +555,10 @@ BuildDataset = function(sym, L, y_type = "binary", forecast_window,
   dates = index(X) #keep dates for rownames
   X = data.frame(X); row.names(X) = dates 
   
-  # Add day of week, month and quarter as variables
+  # Add day of week, month and quarter as variables. MAYBE ADDING LATTER IS BAD IDEA - CANT REALLY LEARN PATTERNS IF ONLY HAVE A YEAR OF DATA, PLUS PATTERNS WILL BE STRONG JUST DUE TO AUTOCORRELATION
   X$Day = as.factor(weekdays(dates))
-  X$Month = as.factor(months(dates))
-  X$Quarter = as.factor(quarters(dates))
+  # X$Month = as.factor(months(dates))
+  # X$Quarter = as.factor(quarters(dates))
   
   # Output summary of the variables we have wrt nubmer of leading NAs/non-missing obs. NOTE THIS EXCLUDES NON-LEADING NAS AS WEVE IMPUTED THEM ALREADY
   M = LeadingNAsSummary(X = X, plot = plot_miss) 
