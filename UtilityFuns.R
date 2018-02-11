@@ -886,6 +886,135 @@ GlmnetFun = function(y, X, yte, Xte, y_family, nfolds = 5, lambda = "lambda.min"
 
 
 ######################################################################
+#                     StepAICFun FUNCTION
+######################################################################
+
+StepAICFun = function(y, X, yte, Xte, y_family) {
+  # Description: quick function to perform variable selection via forward selection. BASED OFF GLMNETFUN Also outputs test set performance metrics
+  # Args: y, X: the response and explanatory vars (X can contain the response too, but onyl if it's called 'y'), yte, Xte, same but for test data; y_family: binomial or gaussian, 
+  # Returns: list with the selected variables as one element, and as the second a dataframe of test set performance metrics (eg balanced accuracy if binomial, median absolute error if gaussian)
+  library(MASS)  
+  library(pROC) #AUC
+  library(caret) #confMat
+  
+  # Prelims  
+  if (!y_family %in%  c("binomial", "gaussian")) {
+    stop ("y_family should be binomial or gaussian")
+  }
+  if (!identical(colnames(X), colnames(Xte))) {
+    stop("This code assumes colnames of X and Xte are identical")
+  }
+  inds = which(!is.na(y)) # Remove any missing vals
+  if (length(inds) > 0) {
+    y = y[inds]; X = X[inds, ]}
+  if ("y" %in% colnames(X)) { #remove response from X/Xte (if present)
+    X = X[, -which(colnames(X) == "y")]; Xte = Xte[, -which(colnames(Xte) == "y")]}
+  
+  # Fit model and store final variables selected and their coefs
+  f_lo = glm(y ~ 1, data = X, family = y_family)
+  f_hi = glm(y ~ ., data = X, family = y_family)
+  f = stepAIC(f_lo, scope = list("lower" = f_lo, "upper" = f_hi), direction = "forward", trace = F)
+  predictors = names(coefficients(f))
+  predictors = predictors[-which(predictors == "(Intercept)")]
+  
+  # Save some (test data) model metrics
+  yhats = as.numeric(predict(f, newdata = Xte, type = "response")) #test set preds
+  if (y_family == "binomial") {
+    thresh = quantile(yhats, 1 - mean(y)) # Set threshold for preds such that same proportion of test obs predicted '1' as observed in training data
+    yhats2 = ifelse(yhats > thresh, 1, 0) #mean(yhats); mean(y) #checking
+    AUC = pROC::auc(pROC::roc(predictor = yhats2, response = yte))
+    yte = factor(yte, levels = c(0, 1)); yhats2 = factor(yhats2, levels = c(0, 1)) #else get warning in next line      
+    C = confusionMatrix(data = yhats2, reference = yte)
+    BalancedAccur = C$byClass["Balanced Accuracy"]
+    Accur = C$overall["Accuracy"]
+    W = data.frame("Metric" = c("BalancedAccur", "Accur", "AUC"), 
+                   "Score" = as.numeric(c(BalancedAccur, Accur, AUC)))
+  } else if (y_family == "gaussian") {
+    RMSE = sqrt(mean((yte - yhats)^2, na.rm = T))
+    MAE = mean(abs(yte - yhats), na.rm = T)
+    MedianAE = median(abs(yte - yhats), na.rm = T)
+    W = data.frame("Metric" = c("MedianAE", "MAE", "RMSE"), 
+                   "Score" = as.numeric(c(MedianAE, MAE, RMSE)))
+  }
+  
+  # Also save yhats and yte in case we want to use for other testing
+  Y = data.frame("Y_test" = yte, "Yhats_test" = yhats)
+  
+  return(list("SelectedVariables" = predictors, "TestSetMetrics" = W, "Preds" = Y))
+}
+
+
+######################################################################
+#                     RpartFun FUNCTION
+######################################################################
+
+RpartFun = function(y, X, yte, Xte, y_family, nfolds, prop_train) {
+  # Description: quick function to perform variable selection via rpart BASED OFF GLMNETFUN Also outputs test set performance metrics
+  # Args: y, X: the response and explanatory vars (X can contain the response too, but onyl if it's called 'y'), yte, Xte, same but for test data; y_family: binomial or gaussian, prop_train/nfolds: args as per MakeTimeSlices 
+  # Returns: list with the selected variables as one element, and as the second a dataframe of test set performance metrics (eg balanced accuracy if binomial, median absolute error if gaussian)
+  library(pROC) #AUC
+  library(caret) #confMat
+  
+  # Prelims  
+  if (!y_family %in%  c("binomial", "gaussian")) {
+    stop ("y_family should be binomial or gaussian")
+  }
+  if (!identical(colnames(X), colnames(Xte))) {
+    stop("This code assumes colnames of X and Xte are identical")
+  }
+  inds = which(!is.na(y)) # Remove any missing vals
+  if (length(inds) > 0) {
+    y = y[inds]; X = X[inds, ]}
+  if ("y" %in% colnames(X)) { #remove response from X/Xte (if present)
+    X = X[, -which(colnames(X) == "y")]; Xte = Xte[, -which(colnames(Xte) == "y")]}
+  
+  # Fit model and store final variables selected and their coefs
+  slices = MakeTimeSlices(nfolds = nfolds, prop_train = prop_train, discrete = T)   # Make indices to be used in resampling
+  if (y_type == "binary") {   # Set up train control
+    y = factor(ifelse(y == 1, "up", "down"))
+    yte = factor(ifelse(yte == 1, "up", "down"))
+    ctrl = trainControl(classProbs = T, index = slices$train, 
+                        indexOut = slices$test,
+                        summaryFunction = twoClassSummary, verboseIter = F)
+    caret_metric = "ROC"
+  } else { 
+    ctrl = trainControl(index = slices$train, 
+                        indexOut = slices$test, verboseIter = F)
+    caret_metric = "RMSE" ## THINK ABOUT THIS ONE - MITE WANT TO USE SOMETHING ELSE
+  }
+  f = train (y = y, x = X, method = "rpart", tuneLength = 40, #fit model. NB tuneLength is quick
+             metric = caret_metric,
+             trControl = ctrl,
+             preProcess = c("scale", "center"))
+  
+  # Save some (test data) model metrics
+  yhats = predict(f, Xte) #test set preds
+  if (y_family == "binomial") {
+    yte2 = (ifelse(yte == "up", 1, 0))
+    yhats2 = (ifelse(yhats == "up", 1, 0))
+    AUC = pROC::auc(pROC::roc(predictor = yhats2, response = yte2))
+    C = confusionMatrix(data = yhats2, reference = yte2)
+    BalancedAccur = C$byClass["Balanced Accuracy"]
+    Accur = C$overall["Accuracy"]
+    W = data.frame("Metric" = c("BalancedAccur", "Accur", "AUC"), 
+                   "Score" = as.numeric(c(BalancedAccur, Accur, AUC)))
+  } else if (y_family == "gaussian") {
+    RMSE = sqrt(mean((yte - yhats)^2, na.rm = T))
+    MAE = mean(abs(yte - yhats), na.rm = T)
+    MedianAE = median(abs(yte - yhats), na.rm = T)
+    W = data.frame("Metric" = c("MedianAE", "MAE", "RMSE"), 
+                   "Score" = as.numeric(c(MedianAE, MAE, RMSE)))
+  }
+  
+  # Also save yhats and yte in case we want to use for other testing
+  Y = data.frame("Y_test" = yte, "Yhats_test" = yhats)
+  
+  return(list("SelectedVariables" = predictors, "TestSetMetrics" = W, "Preds" = Y))
+}
+
+
+
+######################################################################
 #                     RunLength FUNCTION
 ######################################################################
 
