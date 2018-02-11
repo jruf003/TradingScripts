@@ -111,10 +111,6 @@ DownloadData = function(syms.df = NULL, L = NULL,
                                  env = NULL,
                                  from = as.Date(from),
                                  to = as.Date(to)) # the dat
-        if (is.OHLC(L$data[[i]])) { 
-          v = L$data[[i]] #no idea why, but cant just call adjustOHCL(L$data[[i]]) dirctly
-          L$data[[i]] = adjustOHLC(v) #adjust for splits/dividends 
-        }
       }, error = function(e) {
         fails <<- c(fails, syms.df$Symbol[i])
       })
@@ -142,10 +138,6 @@ DownloadData = function(syms.df = NULL, L = NULL,
                              env = NULL,
                              from = last_date,
                              to = as.Date(to)) 
-        if (is.OHLC(new_dat)) { 
-          v = new_dat #no idea why, but cant just call adjustOHCL(L$data[[i]]) dirctly
-          new_dat = adjustOHLC(v) #adjust for splits/dividends 
-        }
         if (as.numeric(index(new_dat)[1] - last_date) > 4) {
           stop ("There may have been an error with updating the data - the new data is >4 days after the last date in L")
         } 
@@ -222,6 +214,8 @@ BuildDataset = function(sym, L, y_type = "binary", forecast_window,
   # Args: sym: the symbol we want to build the dataset for; L: the list containing the data for all the symbols (as output from DownloadData()); y_type: do we want the response to be "price", "return" or "binary" (ie up/down); forecast_window: window to forecast in eg are we trying to predict 5 days ahead? 10 days?; perc_miss_y: the max percent of missing obs allowed within the response (if more than this we get an error); min_obs_y: the min number of non-NA obs in y allowed (if fewer we get an error); perc_miss_x: the amount of NON-LEADING missing values we allow within each X variable (else we dont add it - and NB we dont consider leading missing values as we output this from the function ie the user can decide whether to exclude a variable based on leading NAs at that point); plot_miss: produce a plot summarising the nubmer of leading NAs for each explanatory variable?; min_date: date before which we remove any obs in sym (the rationale being when we define industry and sector indices, we only do so using symbols at least the same length as sym. So, the later the min_date, the less likely other syms in the same industry/sector will be excluded from these indices)
   # Returns: a list comprising the dataset for modelling (X) and summarising number of obs (excluding leading NAs) available for each variable (M). NB this summary is done after we've imputed non-leading NAs.
   # ---------------------------------------------------------------------
+  
+  warning("CURRENTLY THIS SCRIPT EXTRACTS ADJUSTED PRICE FOR DATA FROM YAHOO. YOU MIGHT WANT TO EXTRACT CLOSE PRICE THEN USE INBUILT FUNCTIONALITY IN QUANTMOD TO ADJUST PRICES")
   
   library(quantmod)
   library(imputeTS) #interpol of missing vals
@@ -380,35 +374,22 @@ BuildDataset = function(sym, L, y_type = "binary", forecast_window,
                perc_miss = perc_miss_x)
   }
   
-  # MACD of lagged price, signal, price less signal and cross over. NB we compute cross in two ways: "cross up" if signal crosses MACD and "cross down" if vice versa (or the other way around - i forget) 
+  # MACD of lagged price, plus signal and cross over. NB we compute cross by creating vector "v" which is true if MACD is greater than signal, then asigning a flag if the nth value is different from the (n-1)the value. 
   X = addVar(X = X, var = MACD(quantmod::Lag(X$pL0, k = forecast_window))[, "macd"],
              var_name = paste0("MACD_pL", forecast_window), perc_miss = perc_miss_x)
   X = addVar(X = X, var = MACD(quantmod::Lag(X$pL0, k = forecast_window))[, "signal"],
              var_name = paste0("MACD_pL", forecast_window, "_sig"), perc_miss = perc_miss_x)
-  X = addVar(X = X, var = X[, ncol(X) - 1] - X[, ncol(X)],
-             var_name = paste0("MACD_pL", forecast_window, "_macd-sig"), perc_miss = perc_miss_x)
-  v = X[, ncol(X)] > 0 #logical vector: MACD > signal? Extracting for easier handling
-  X$temp_colname = c(NA, ifelse(as.logical(v[-1]) == T & 
-                                  as.logical(v[-length(v)] == F), 1, 0))
-  colnames(X)[ncol(X)] = paste0("MACD_pL", forecast_window, "_crossUp")
-  X$temp_colname = c(NA, ifelse(as.logical(v[-1]) == F & 
-                                  as.logical(v[-length(v)] == T), 1, 0))
-  colnames(X)[ncol(X)] = paste0("MACD_pL", forecast_window, "_crossDown")
-
+  v = X[, ncol(X) - 1] > X[, ncol(X)] #logical vector
+  X$temp_colname = c(NA, ifelse(as.logical(v[-1]) != as.logical(v[-length(v)]), 1, 0))
+  colnames(X)[ncol(X)] = paste0("MACD_pL", forecast_window, "_cross")
   
-  # n-day RSI for lagged price and returns for various n=3, 7, 14, 21. Also flag for when its >70 and <30 (common thresholds for overbought/sold). 
+  # n-day RSI for lagged price and returns for various n=3, 7, 14, 21
   for (n in c(3, 7, 14, 21)) { #NOTE n IS DIFF INPUT FROM ndayRets n
     X = addVar(X = X, var = RSI(X[, paste0("pL", forecast_window)], n = n), 
                var_name = paste0("RSI_", paste0("pL", forecast_window), "_n", n), 
                perc_miss = perc_miss_x)
-    v = X[, ncol(X)] #extract RSI var we just created for easeir hanlding
-    X = addVar(X = X, var = ifelse(v > 70, 1, 0), 
-               var_name = paste0("RSI_", paste0("pL", forecast_window), 
-                                 "_n", n, "_70flag"), 
-               perc_miss = perc_miss_x)
-    X = addVar(X = X, var = ifelse(v < 20, 1, 0), 
-               var_name = paste0("RSI_", paste0("pL", forecast_window), 
-                                 "_n", n, "_30flag"), 
+    X = addVar(X = X, var = RSI(X[, key_name], n = n), 
+               var_name = paste0("RSI_", key_name, "_n", n),
                perc_miss = perc_miss_x)
   }
   
@@ -453,15 +434,6 @@ BuildDataset = function(sym, L, y_type = "binary", forecast_window,
   #         EXTRACT KEY INDICES/COMMODITIES/EXCHANGE RATES
   # ---------------------------------------------------------------------
   
-  # for key indices, add lagged price (as measure of economic strength). 
-  for (k in 1:length(indices)) {
-    dat = ExtractPrice(L$data[[which(names(L$data) == indices[k])]])
-    sym_name = gsub("[[:punct:]]", "", indices[k]) #for variable naming
-    X = addVar(X = X, var = quantmod::Lag(dat, k = forecast_window),
-               var_name = paste0(sym_name, "_pL", forecast_window),
-               perc_miss = perc_miss_x)
-  }    
-  
   # for key indices/commodities/exchange rates, compute 1-day lagged returns plus EMA of those returns for n=3 & 5. 
   key_syms = c(indices, commods, ERs)
   prefixs = c(rep("StockIndex", length(indices)), #for variable naming
@@ -474,21 +446,18 @@ BuildDataset = function(sym, L, y_type = "binary", forecast_window,
     dat = ExtractPrice(L$data[[which(names(L$data) == key_syms[k])]])
     sym_name = gsub("[[:punct:]]", "", key_syms[k]) #for variable naming
     ncol_X = ncol(X) #save no. cols. Necessary because it's possible that the following line wont add a variable (if perc missing is too high), meaning we shouldn't run the rest of this loop (the EMAs). We can check by comparing ncol(X) before and after running addVar()
-    X = addVar(X = X, var = ndayRets(quantmod::Lag(dat, k = forecast_window), 
-                                     n = forecast_window), #add returns var
+    X = addVar(X = X, var = ndayRets(quantmod::Lag(dat, k = forecast_window), n = forecast_window), #add returns var
                var_name = paste0(prefixs[k], "_", sym_name, "_", key_name),
                perc_miss = perc_miss_x)
     if (ncol_X != ncol(X)) { #if we succeeded in adding the var 
       i = ncol(X) # add EMA vars. First save variable index
       for (n in c(3, 5, 10, 20)) { 
         X = addVar(X = X, var = EMA(X[, i], n = n), 
-                   var_name = paste0("EMA_", prefixs[k], "_", sym_name, "_", 
-                                     key_name, "_", n),
+                   var_name = paste0("EMA_", prefixs[k], "_", sym_name, "_", key_name, "_", n),
                    perc_miss = perc_miss_x)
       }
     }
   }
-  
   
   # ---------------------------------------------------------------------
   #     CREATE INDICES FROM OTHER SYMBOLS IN SAME INDUSTRY/SECTOR
@@ -555,10 +524,10 @@ BuildDataset = function(sym, L, y_type = "binary", forecast_window,
   dates = index(X) #keep dates for rownames
   X = data.frame(X); row.names(X) = dates 
   
-  # Add day of week, month and quarter as variables. MAYBE ADDING LATTER IS BAD IDEA - CANT REALLY LEARN PATTERNS IF ONLY HAVE A YEAR OF DATA, PLUS PATTERNS WILL BE STRONG JUST DUE TO AUTOCORRELATION
+  # Add day of week, month and quarter as variables
   X$Day = as.factor(weekdays(dates))
-  # X$Month = as.factor(months(dates))
-  # X$Quarter = as.factor(quarters(dates))
+  X$Month = as.factor(months(dates))
+  X$Quarter = as.factor(quarters(dates))
   
   # Output summary of the variables we have wrt nubmer of leading NAs/non-missing obs. NOTE THIS EXCLUDES NON-LEADING NAS AS WEVE IMPUTED THEM ALREADY
   M = LeadingNAsSummary(X = X, plot = plot_miss) 
@@ -839,8 +808,7 @@ GlmnetFun = function(y, X, yte, Xte, y_family, nfolds = 5, lambda = "lambda.min"
   
   # Fit model and store final variables selected and their coefs
   f = cv.glmnet(x = X, y = y, family = y_family, nfolds = nfolds) # fit model
-  M = data.frame("Variable" = dimnames(coef(f, lambda = lambda))[[1]], 
-                 "Estimate" = round(matrix(coef(f, lambda = lambda)), 5))
+  M = data.frame("Variable" = dimnames(coef(f))[[1]], "Estimate" = round(matrix(coef(f)), 5))
   M = M[M$Estimate > 0, ] #remove nonzero coefs
   
   # If we dont want in model matrix form, have to replace e.g. 'MonthMarch' with e.g. 'Month'. Below loop achieves this. 
@@ -1811,3 +1779,28 @@ DownloadTFXData = function(pairs, months, years, out.dir,
   }
   warning("**** IMPORTANT *****\n\nTHERE ARE OFTEN ERRORS DUE TO (I ASSUME) INTERNET DISCONNECTION WHICH MEAN YOU MAY HAVE TO RUN THE ABOVE MANY TIMES TO SUCCESFFULY DOWNLOAD ALL THE FILES\n\n")
 }
+
+
+#######################################################################################################
+#             MakeTimeSlices FUNCTION
+#######################################################################################################
+
+MakeTimeSlices = function(nfolds, prop_train, discrete = T) {
+  #Description: just calls 'createTimeSlices" function (from caret) but with two modifications: 1) carets function requires that you specify initial window size and horizon size. I want to specify proportion of train data and number of folds instead and choose window/horizon size instead (eg if dataset is 100 rows, prop_train = 0.5 and nfolds = 2, train size will be 50 and horizon 25 (first fold will be 1:50/51:75 train/test; second will be 25:75/76:100 ie we use all data. See caret's page on createTimeSlice for details of exctly what this function does)). 2) IF discrete = T if we were to do the above excercise (set intialWindow = 50 and horizon = 25) carets function would make a gizzillion diff train/test splits - 1:50/51:75; 2:51/52:76....25:75/76/100. We only want the unique folds ie if we specify nfolds = 2 we want 2 not a gizzillion folds (which will take way longer)
+  # args: nfolds: number of test/train splits, prop_train: proportion of data to use for training; discrete: if F,  do what caret does in terms of a gizzillion splits (1:50/51:75; 2:51/52:76....25:75/76/100) - which will take forever, so use discrete = T!.
+  
+  # Calculate initial window/horizon and create time slices
+  initialWindow = floor(nrow(X) * prop_train)
+  horizon = floor(nrow(X) * prop_train/nfolds)
+  slices = createTimeSlices(1:nrow(X), initialWindow = initialWindow, horizon = horizon, fixedWindow = T)
+  if (discrete == T) { #remove all those (mostly) duplicated folds as described in "description"
+    inds = 1:length(slices$train) #index of each slice
+    inds_to_keep = (1:100000)[1:100000 %% length(slices$test[[1]]) == 1] #if each test set is eg 10 obs, keep only 1st, 11th, 21st etc (ie so each test set is unique obs). NB 1000000 is just an aribtrarily big number 
+    inds = intersect(inds, inds_to_keep) #subset inds_to_keep to ony inlcude indices in slices
+    slices$train = slices$train[inds]
+    slices$test = slices$test[inds]
+  }
+  message("Output from MakeTimeSlices: during resampling for caret, you will have ", nfolds, " pairs of train/test time slices, each with ", length(slices$train[[1]]), "/", length(slices$test[[1]]), " train/test obs")
+  return(slices)
+}
+
