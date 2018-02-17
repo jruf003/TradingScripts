@@ -975,11 +975,13 @@ RpartFun = function(y, X, yte, Xte, y_family, nfolds, prop_train) {
     yte = factor(ifelse(yte == 1, "up", "down"))
     ctrl = trainControl(classProbs = T, index = slices$train, 
                         indexOut = slices$test,
+				preProcOptions = list('freqCut' = 99/1),
                         summaryFunction = twoClassSummary, verboseIter = F)
     caret_metric = "ROC"
   } else { 
     ctrl = trainControl(index = slices$train, 
-                        indexOut = slices$test, verboseIter = F)
+                        indexOut = slices$test, verboseIter = F,
+				preProcOptions = list('freqCut' = 99/1))
     caret_metric = "RMSE" ## THINK ABOUT THIS ONE - MITE WANT TO USE SOMETHING ELSE
   }
   f = train (y = y, x = X, method = "rpart", tuneLength = 40, #fit model. NB tuneLength is quick
@@ -1009,7 +1011,7 @@ RpartFun = function(y, X, yte, Xte, y_family, nfolds, prop_train) {
   # Also save yhats and yte in case we want to use for other testing
   Y = data.frame("Y_test" = yte, "Yhats_test" = yhats)
   
-  return(list("SelectedVariables" = predictors, "TestSetMetrics" = W, "Preds" = Y))
+  return(list("SelectedVariables" = predictors(f), "TestSetMetrics" = W, "Preds" = Y))
 }
 
 
