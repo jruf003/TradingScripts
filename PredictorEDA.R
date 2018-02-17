@@ -18,14 +18,15 @@ library(scales)
 # Specify num symbols to sample
 n_syms = 400
 ###################
-# n_syms = 5 #for testing!!! >>>
+#n_syms = 3 #for testing!!! >>>
 ################## 
 
 # Specify files to load and directories
 fname = "L_20180130.RData" #name of data to load
-# fname = "L_20171231.RData" #name of data to load
-# base.dir = "~/Desktop/Jon/Trading"
+# fname = "L_20171231.RData" #name of data to load #>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 base.dir = "C:/Users/user/Desktop/Jonathan/Trading"
+base.dir = "//ACCSHARES/HomeDir$/RuffellJ/Trading" #>>>>>>>>>>>>
+# base.dir = "~/Desktop/Jon/Trading" #>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 dat.dir = file.path(base.dir, "Outputs", "RunDownloadData_Out")
 code.dir = file.path(base.dir, "Scripts")
 out.dir = file.path(base.dir, "Outputs")
@@ -100,7 +101,7 @@ D = levl3; rm(levl1, levl2, levl3) #label more conveniently
 # y_type = "returns" #>>>> FOR TESTING
 # sym = names(L$data)[1] #>>>
 # sym = "VET"
-# fws = 3
+# fws = 3; n = fws
 # ####################################
 
 # Loop through each combo of n, y_type and sym, computing and storing pvals and ROCs (as output from BivariabePvals/ROCs) as we go 
@@ -108,6 +109,7 @@ k = 1; n_combos = length(fws) * length(y_types) * length(syms) #for progress upd
 ptm = proc.time()
 for (n in fws) { 
   for (y_type in y_types) {
+    H = vector("list", length(syms)); names(H) = syms #to store all datasets for this combo of y_type/fw
     for (sym in syms) {
       tryCatch({
         cat ("\nUp to iteration", k, "of", n_combos, "(", round(100*k/n_combos, 2), "%)") #progress update
@@ -124,19 +126,38 @@ for (n in fws) {
         if (length(ind1) == 0 | length(ind2) == 0) {
           stop ("check dates specified in max_train_date/max_test_date exist in the data. If not, add/remove a day")
         }
-        Xte = X[(ind1 + 1):ind2, ] #extract test obs 
+        Xte = X[(ind1 + 1):ind2, ] #extract test obs
+        Xval = X[ind2:nrow(X), ] #extrat val obs CURRENTLY NOT USED - JUST EXTRACTED JUST IN CASE
         X = X[1:ind1, ] #remove obs after to max_train_date
         
         # Remove cols with too many leading NAs and remove incomplete rows
         to_rem = M$Variable[M$NumObsExclLeadingNAs < min_obs_x] #find x vars with too many missing values
         if (length(to_rem) > 0) {
-          X = X[ -which(colnames(X) %in% to_rem)]; Xte = Xte[ -which(colnames(Xte) %in% to_rem)] 
+          X = X[ -which(colnames(X) %in% to_rem)]
+          Xte = Xte[ -which(colnames(Xte) %in% to_rem)]
+          Xval = Xval[ -which(colnames(Xval) %in% to_rem)] #NOT CURRENTLY USED IN THIS SCRIPT
           message("\n", length(to_rem), " variables are being removed as they have fewer than ", min_obs_x, " values in the training data after removing leading NAs:\n", paste0(sort(to_rem), collapse = ", ")) 
         }
-        X = X[complete.cases(X), ]; Xte = Xte[complete.cases(Xte), ] #remove incomplete rows
-        message("\nThe final train dataset for ", sym, " has ", nrow(X), " complete rows and ", ncol(X), " variables. The final test dataset has ", nrow(Xte), " complete rows")
+        X = X[complete.cases(X), ] #remove incomplete rows
+        Xte = Xte[complete.cases(Xte), ] 
+        Xval = Xval[complete.cases(Xval), ] #NOT CURRENTLY USED IN THIS SCRIPT
+        message("\nThe final train dataset for ", sym, " has ", nrow(X), " complete rows and ", ncol(X), " variables. The final test dataset has ", nrow(Xte), " complete rows. The final validiation set (NOT CURRENTLY USED) has ", nrow(Xval), " complete rows.")
         if (sum(!is.na(X$y)) < min_obs_y) { #check enough y obs. NB we do this within BuildDataset,  
           stop ("You have too few y obs")}   #but not before we remove test/val obs
+        
+        # Store the data for possible use in other scripts (eg binding together to test correlations on bigger dataset, testing benefits of fitting one model to all sctocks etc). NB we save below (one list for each combo of fw/ytype). Also NB we dont want to do the processing we continue to do in the current script before saving
+        H[[sym]] = rbind(X, Xte, Xval)
+        H[[sym]]$TrainTest = factor(c(rep("train", nrow(X)), rep("test", nrow(Xte)), rep("val", nrow(Xval)))) 
+        ind = which(L$meta_data$Symbol == sym)
+        if (length(ind) > 0) {
+          meta_data = L$meta_data[ind, ] #add meta data as variables. First extract
+          H[[sym]]$sym = factor(meta_data$Symbol)
+          H[[sym]]$Industry = factor(meta_data$Industry)
+          H[[sym]]$Sector = factor(meta_data$Sector)
+          H[[sym]]$MarketCap = factor(meta_data$MarketCap)
+          H[[sym]]$IPOyear = factor(ifelse(is.na(meta_data$IPOyear), "None", meta_data$IPOyear))
+          H[[sym]]$Exchange = factor(meta_data$Exchange)
+        }
         
         # Some messy workaround code you coul probaby write better. Basically, BivariateROCs encounters some probs due to some values of eventPos/neg being all zero. Removing these vars if this is the case
         to_rem = c() # remove eventPos/Neg if all 0 
@@ -165,19 +186,34 @@ for (n in fws) {
                                            use_model_mat = use_model_mat)
             accurs_rocs_test = NA
           }
-        glmnet_out = GlmnetFun(X = X, y = y, Xte = Xte, yte = yte, y_family = y_family, nfolds = 3, 
-                               lambda = "lambda.min", use_model_mat = F) #get variables selected by glmnet
-
+        
+        # Geet vars selected by glmnet, stepACI (forard) and rpart
+        glmnet_out = GlmnetFun(X = X, y = y, Xte = Xte, yte = yte, y_family = y_family, nfolds = 4, 
+                               lambda = "lambda.min", use_model_mat = F) 
+        stepAIC_out = StepAICFun(X = X, y = y, Xte = Xte, yte = yte, y_family = y_family) 
+        rpart_out = RpartFun(X = X, y = y, Xte = Xte, yte = yte, y_family = y_family, 
+                                 nfolds = 10, prop_train = 0.5) #See 'MakeTimeSlices" for last two args
+        
         # Store results in nested list
         out = list("pvals_train" = pvals_train, "accurs_rocs_test" = accurs_rocs_test, 
                    "MAEs_RMSEs_test" = MAEs_RMSEs_test, "SampleSize_train" = nrow(X),
-                   "SampleSize_test" = nrow(Xte), "Glmnet_selectedVars" = glmnet_out$SelectedVariables,
-                   "Glmnet_metrics_test" = glmnet_out$TestSetMetrics)
+                   "SampleSize_test" = nrow(Xte), 
+                   "Glmnet_selectedVars" = glmnet_out$SelectedVariables,
+                   "Glmnet_metrics_test" = glmnet_out$TestSetMetrics,
+                   "StepAIC_selectedVars" = stepAIC_out$SelectedVariables,
+                   "StepAIC_metrics_test" = stepAIC_out$TestSetMetrics,
+                   "Rpart_selectedVars" = rpart_out$SelectedVariables,
+                   "Rpart_metrics_test" = rpart_out$TestSetMetrics)
         D[[paste0("forecast_window=", n)]][[y_type]][[sym]] = out
       }, error = function(e) {
         message("\nSomething went wrong for ", sym, " - prob didn't meet one of the criteria for BuildDataset (eg too many missing values")
       })
     }
+    # Save the list containing the data used for this combo of fw/y_typ
+    out.dir_temp = file.path(out.dir, paste0("forecast_window=", n)) #make dir for saving
+    dir.create(out.dir_temp, showWarnings = F)
+    out.dir_temp2 = file.path(out.dir_temp, y_type); dir.create(out.dir_temp2, showWarnings = F)
+    save(H, file = file.path(out.dir_temp2, "Datasets.RData"))
   }
 }
 proc.time() - ptm
@@ -209,7 +245,8 @@ for (SYM in names(L)) {
     for (Y_TYPE in y_types) {
       d = D[[paste0("forecast_window=", FW)]][[Y_TYPE]][[SYM]]
       for (METRIC in names(d)) {
-        if (is.data.frame(d[[METRIC]]) & !(METRIC %in% c("Glmnet_selectedVars", "Glmnet_metrics_test"))) {
+        if (is.data.frame(d[[METRIC]]) & !(METRIC %in% c("Glmnet_selectedVars", "Glmnet_metrics_test",
+"StepAIC_selectedVars", "StepAIC_metrics_test", "Rpart_selectedVars", "Rpart_metrics_test"))) {
           D[[paste0("forecast_window=", FW)]][[Y_TYPE]][[SYM]][[METRIC]] = 
             d[[METRIC]][sample(1:nrow(d[[METRIC]]), min(L[[SYM]])), ]
         }
@@ -242,12 +279,14 @@ for (n in fws) {
     # Below loop extracts pval, balance accuracy, AUC, MAE and median AE results across the symbosl (W_p, W_ba, W_auc, W_mae and W_medae respectively) by variable. Each cell corresponds to a pval etc for one combo of symbol (cols) and variable (rows) such that by summarising by row we can get eg median pval for ith variable
     W_p = matrix(NA, nrow = length(vars), ncol = length(names(L1))) #to store results
     rownames(W_p) = vars; colnames(W_p) = names(L1)
-    W_ba = W_p; W_auc = W_p; W_mae = W_p; W_medae = W_p; W_glmnet = W_p
+    W_ba = W_p; W_auc = W_p; W_mae = W_p; W_medae = W_p; W_glmnet = W_p; W_step = W_p; W_rpart = W_p 
     for (i in 1:nrow(W_p)) {
       # cat("\nUp to variable", i, "of", nrow(W_p))
       for (j in 1:ncol(W_p)) {
         i_p = which(L1[[j]]$pvals_train$Variable == rownames(W_p)[i]) #index of variable in pvals datarame in W_p
         i_glmnet = which(L1[[j]]$Glmnet_selectedVars$Variable == rownames(W_p)[i]) #as above for selected vars
+        i_step = which(L1[[j]]$StepAIC_selectedVars == rownames(W_p)[i]) 
+        i_rpart = which(L1[[j]]$Rpart_selectedVars == rownames(W_p)[i]) 
         i_ba = NULL; i_auc = NULL; i_mae = NULL; i_medae = NULL #initialise 
         if (y_type == "binary") {
           i_ba = which(L1[[j]]$accurs_rocs_test$Variable == rownames(W_ba)[i]) #as for i_p above
@@ -257,7 +296,9 @@ for (n in fws) {
           i_medae = which(L1[[j]]$MAEs_RMSEs_test$Variable == rownames(W_medae)[i])
         }
         if (length(i_p) >  0) {W_p[i, j] = L1[[j]]$pvals_train$Pval[i_p]}
-        if (length(i_glmnet) > 0) {W_glmnet[i, j] = 1} #just record flag if var was selected into final glmnet
+        if (length(i_glmnet) > 0) {W_glmnet[i, j] = 1} #just record flag if var was selected
+        if (length(i_step) > 0) {W_step[i, j] = 1}
+        if (length(i_rpart) > 0) {W_rpart[i, j] = 1}
         if (length(i_ba) > 0) {W_ba[i, j] = L1[[j]]$accurs_rocs_test$BalancedAccur[i_ba]}
         if (length(i_auc) > 0) {W_auc[i, j] = L1[[j]]$accurs_rocs_test$AUC[i_auc]}
         if (length(i_mae) > 0) {W_mae[i, j] = L1[[j]]$MAEs_RMSEs_test$MAE[i_mae]}
@@ -268,6 +309,8 @@ for (n in fws) {
     # Above datasets still arent summarised enough - contain all the pvlas/rocs. W below summarises into eg median
     W = data.frame("Variable" = vars, 
                    "Perc_inGlmnet" = apply(W_glmnet, 1, function (x) 100 * sum(x == 1, na.rm = T)/length(x)),
+                   "Perc_inStep" = apply(W_step, 1, function (x) 100 * sum(x == 1, na.rm = T)/length(x)),
+                   "Perc_inRpart" = apply(W_rpart, 1, function (x) 100 * sum(x == 1, na.rm = T)/length(x)),
                    "Pval_Median" = apply(W_p, 1, median, na.rm = T),
                    "BalancedAccur_Median" = apply(W_ba, 1, median, na.rm = T),
                    "AUC_Median" = apply(W_auc, 1, median, na.rm = T),
@@ -292,6 +335,8 @@ for (n in fws) {
     
     # Add variables which are rankings of each metric. Normally would do with 'order' but for some reason not working - below is workaround
     W = W[order(W$Perc_inGlmnet, decreasing = T), ]; W$Perc_inGlmnet_Rank = 1:nrow(W)
+    W = W[order(W$Perc_inStep, decreasing = T), ]; W$Perc_inStep_Rank = 1:nrow(W)
+    W = W[order(W$Perc_inRpart, decreasing = T), ]; W$Perc_inRpart_Rank = 1:nrow(W)
     W = W[order(W$Pval_Median, decreasing = F), ]; W$Pval_Rank = 1:nrow(W)
     W = W[order(W$BalancedAccur_Median, decreasing = T), ]; W$BalancedAccur_Rank = 1:nrow(W) 
     W = W[order(W$AUC_Median, decreasing = T), ]; W$AUC_Rank = 1:nrow(W) 
@@ -339,13 +384,39 @@ for (n in fws) {
                       y=W$Perc_inGlmnet)) +
       geom_bar(stat='identity') + coord_flip()
     if (.Platform$OS.type == "windows") {
-      g = g + theme(axis.text=element_text(size=5))} #axis text is wrong for windows but not for unix
+      g = g + theme(axis.text=element_text(size=4))} #axis text is wrong for windows but not for unix
     x11(height = 10, width = 13)
     print(g)
     savePlot(file.path(out.dir_temp2, paste0("BarPlot_PercInGlmnet_forecast_window=", n, "_y_type=", 
                                              y_type, ".", exten)), type = exten)
     graphics.off()
 
+
+    # Make % selected into stepAIC plot. Technically should be barplot but this shows same thing!
+    g = ggplot(W, aes(x=reorder(factor(W$Variable), W$Perc_inStep), 
+                      y=W$Perc_inStep)) +
+      geom_bar(stat='identity') + coord_flip()
+    if (.Platform$OS.type == "windows") {
+      g = g + theme(axis.text=element_text(size=4))} #axis text is wrong for windows but not for unix
+    x11(height = 10, width = 13)
+    print(g)
+    savePlot(file.path(out.dir_temp2, paste0("BarPlot_PercInStep_forecast_window=", n, "_y_type=", 
+                                             y_type, ".", exten)), type = exten)
+    graphics.off()
+    
+    
+    # Make % selected into Rpart plot. Technically should be barplot but this shows same thing!
+    g = ggplot(W, aes(x=reorder(factor(W$Variable), W$Perc_inRpart), 
+                      y=W$Perc_inRpart)) +
+      geom_bar(stat='identity') + coord_flip()
+    if (.Platform$OS.type == "windows") {
+      g = g + theme(axis.text=element_text(size=4))} #axis text is wrong for windows but not for unix
+    x11(height = 10, width = 13)
+    print(g)
+    savePlot(file.path(out.dir_temp2, paste0("BarPlot_PercInRpart_forecast_window=", n, "_y_type=", 
+                                             y_type, ".", exten)), type = exten)
+    graphics.off()
+    
     # Make Balanced Accuracy and AUC plots. 
     if (y_type == "binary") { #else not defined
       
@@ -407,4 +478,6 @@ for (n in fws) {
 }
 proc.time() - ptm
 save(D, file = file.path(out.dir, "D.RData")) #save overall list obj
+
+
 
